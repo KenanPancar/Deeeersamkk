@@ -1,0 +1,1545 @@
+name: Ders Odak APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/ders-odak.yml"
+
+jobs:
+  apk:
+    name: Debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Proje dosyalarini yaz
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "app"
+          cat > "app/build.gradle.kts" << 'END_DERS_ODAK_FILE'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.dersodak.app"
+              compileSdk = 35
+
+              defaultConfig {
+                  applicationId = "com.dersodak.app"
+                  minSdk = 26
+                  targetSdk = 35
+                  versionCode = 1
+                  versionName = "1.0.0"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro",
+                      )
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.15.0")
+              implementation("androidx.appcompat:appcompat:1.7.0")
+              implementation("com.google.android.material:material:1.12.0")
+              implementation("androidx.constraintlayout:constraintlayout:2.2.0")
+          }
+          END_DERS_ODAK_FILE
+          mkdir -p "app"
+          cat > "app/proguard-rules.pro" << 'END_DERS_ODAK_FILE'
+          # Minify kapalı. Dosya Gradle referansı için duruyor.
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main"
+          cat > "app/src/main/AndroidManifest.xml" << 'END_DERS_ODAK_FILE'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:tools="http://schemas.android.com/tools">
+
+              <!-- YouTube açıkken kısa ömürlü bildirim. YouTube kapanınca servis de kapanır. -->
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+              <!-- Pil optimizasyonu servisi öldürmesin diye kullanıcıdan istenir. -->
+              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+              <!-- Yalnızca ön plandaki paket adı. Ekran içeriği bu izinle okunmaz. -->
+              <uses-permission
+                  android:name="android.permission.PACKAGE_USAGE_STATS"
+                  tools:ignore="ProtectedPermissions" />
+              <!-- Bazı cihazlarda YouTube paketinin görünmesi için. -->
+              <uses-permission
+                  android:name="android.permission.QUERY_ALL_PACKAGES"
+                  tools:ignore="QueryAllPackagesPermission" />
+              <!-- Ders dışı videoda kısa uyarı bandı. Verilmezse uygulama bandsız da çalışır. -->
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+              <queries>
+                  <package android:name="com.google.android.youtube" />
+              </queries>
+
+              <application
+                  android:allowBackup="false"
+                  android:icon="@drawable/ic_launcher"
+                  android:label="@string/app_name"
+                  android:roundIcon="@drawable/ic_launcher"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.DersOdak">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".YouTubeGuardService"
+                      android:exported="false"
+                      android:label="@string/a11y_label"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+                      <intent-filter>
+                          <action android:name="android.accessibilityservice.AccessibilityService" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.accessibilityservice"
+                          android:resource="@xml/accessibility_service_config" />
+                  </service>
+
+                  <service
+                      android:name=".GuardForegroundService"
+                      android:exported="false"
+                      android:foregroundServiceType="specialUse">
+                      <property
+                          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                          android:value="YouTube açıkken 5 saniyede bir ders başlığı denetimi" />
+                  </service>
+
+                  <receiver
+                      android:name=".BootReceiver"
+                      android:exported="false">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED" />
+                      </intent-filter>
+                  </receiver>
+              </application>
+          </manifest>
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/java/com/dersodak/app"
+          cat > "app/src/main/java/com/dersodak/app/BootReceiver.kt" << 'END_DERS_ODAK_FILE'
+          package com.dersodak.app
+
+          import android.content.BroadcastReceiver
+          import android.content.Context
+          import android.content.Intent
+
+          class BootReceiver : BroadcastReceiver() {
+              override fun onReceive(context: Context, intent: Intent?) {
+                  if (intent?.action != Intent.ACTION_BOOT_COMPLETED) return
+                  Notifier.ensureChannel(context)
+              }
+          }
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/java/com/dersodak/app"
+          cat > "app/src/main/java/com/dersodak/app/GuardForegroundService.kt" << 'END_DERS_ODAK_FILE'
+          package com.dersodak.app
+
+          import android.app.Service
+          import android.content.Intent
+          import android.content.pm.ServiceInfo
+          import android.os.Build
+          import android.os.IBinder
+
+          class GuardForegroundService : Service() {
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  val notification = Notifier.build(
+                      this,
+                      "YouTube açık. Başlık 5 saniyede bir denetleniyor.",
+                  )
+                  try {
+                      if (Build.VERSION.SDK_INT >= 34) {
+                          startForeground(
+                              Notifier.NOTIF_ID,
+                              notification,
+                              ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                          )
+                      } else {
+                          startForeground(Notifier.NOTIF_ID, notification)
+                      }
+                  } catch (_: Exception) {
+                      try {
+                          startForeground(Notifier.NOTIF_ID, notification)
+                      } catch (_: Exception) {
+                          stopSelf()
+                      }
+                  }
+                  return START_NOT_STICKY
+              }
+
+              override fun onDestroy() {
+                  if (Build.VERSION.SDK_INT >= 24) {
+                      stopForeground(STOP_FOREGROUND_REMOVE)
+                  } else {
+                      @Suppress("DEPRECATION")
+                      stopForeground(true)
+                  }
+                  super.onDestroy()
+              }
+          }
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/java/com/dersodak/app"
+          cat > "app/src/main/java/com/dersodak/app/KeywordStore.kt" << 'END_DERS_ODAK_FILE'
+          package com.dersodak.app
+
+          import android.content.Context
+
+          object KeywordStore {
+              private const val PREFS = "ders_odak"
+              private const val KEY_RAW = "keywords_raw"
+              private const val KEY_STATUS = "status"
+              private const val KEY_STATUS_AT = "status_at"
+
+              const val DEFAULT_KEYWORDS =
+                  "ders, matematik, geometri, trigonometri, fizik, kimya, biyoloji, tarih, coğrafya, edebiyat, türkçe, ingilizce, almanca, fransızca, felsefe, sosyoloji, psikoloji, mantık, hukuk, muhasebe, iktisat, ekonomi, anatomi, fizyoloji, programlama, algoritma, python, java, calculus, algebra, physics, chemistry, biology, grammar, lecture, lesson, tutorial, homework, exam, study with me, konu anlatım, konu anlatımı, soru çözüm, soru çözümü, çıkmış soru, yks, tyt, ayt, lgs, kpss, ales, dgs, yds, yökdil, msü, ödev, sınav, deneme, ünite, formül, teorem, ispat, türev, integral, limit, fonksiyon, olasılık, istatistik, organik, hücre, mitoz, mayoz, osmanlı, inkılap, paragraf, dil bilgisi, yazım, kamp, tekrar, özet, slayt, ders notu, çözümlü, soru bankası, khan academy, lineer cebir, diferansiyel, elektrik, manyetizma, optik, dalga, termodinamik, genetik, evrim, ekoloji, harita, şiir, roman tahlili, öğretmen, üniversite, müfredat, focus, hopital, beceri temelli, oyss, odak"
+
+              private fun prefs(context: Context) =
+                  context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+              fun raw(context: Context): String =
+                  prefs(context).getString(KEY_RAW, DEFAULT_KEYWORDS) ?: DEFAULT_KEYWORDS
+
+              fun keywords(context: Context): List<String> = parse(raw(context))
+
+              fun save(context: Context, raw: String) {
+                  prefs(context).edit().putString(KEY_RAW, raw.trim()).apply()
+              }
+
+              fun setStatus(context: Context, text: String) {
+                  prefs(context).edit()
+                      .putString(KEY_STATUS, text.take(240))
+                      .putLong(KEY_STATUS_AT, System.currentTimeMillis())
+                      .apply()
+              }
+
+              fun status(context: Context): String =
+                  prefs(context).getString(KEY_STATUS, "Henüz kontrol yok.") ?: "Henüz kontrol yok."
+
+              fun statusAt(context: Context): Long = prefs(context).getLong(KEY_STATUS_AT, 0L)
+
+              fun parse(raw: String): List<String> =
+                  raw.split(',', '\n', ';')
+                      .map { it.trim() }
+                      .filter { it.isNotEmpty() }
+          }
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/java/com/dersodak/app"
+          cat > "app/src/main/java/com/dersodak/app/MainActivity.kt" << 'END_DERS_ODAK_FILE'
+          package com.dersodak.app
+
+          import android.Manifest
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.os.Handler
+          import android.os.Looper
+          import android.provider.Settings
+          import android.widget.TextView
+          import android.widget.Toast
+          import androidx.appcompat.app.AppCompatActivity
+          import com.google.android.material.button.MaterialButton
+          import com.google.android.material.textfield.TextInputEditText
+          import java.text.DateFormat
+          import java.util.Date
+
+          class MainActivity : AppCompatActivity() {
+              private val handler = Handler(Looper.getMainLooper())
+              private var keywordsLoaded = false
+
+              private val tick = object : Runnable {
+                  override fun run() {
+                      render()
+                      handler.postDelayed(this, 2_000)
+                  }
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_main)
+                  findViewById<MaterialButton>(R.id.btnAppInfo).setOnClickListener {
+                      open(
+                          Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                              data = Uri.fromParts("package", packageName, null)
+                          },
+                      )
+                  }
+                  findViewById<MaterialButton>(R.id.btnA11y).setOnClickListener {
+                      open(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                  }
+                  findViewById<MaterialButton>(R.id.btnNotif).setOnClickListener { openNotifications() }
+                  findViewById<MaterialButton>(R.id.btnBattery).setOnClickListener { openBattery() }
+                  findViewById<MaterialButton>(R.id.btnUsage).setOnClickListener {
+                      open(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                  }
+                  findViewById<MaterialButton>(R.id.btnOverlay).setOnClickListener {
+                      open(
+                          Intent(
+                              Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                              Uri.parse("package:$packageName"),
+                          ),
+                      )
+                  }
+                  findViewById<MaterialButton>(R.id.btnSave).setOnClickListener { saveKeywords() }
+                  findViewById<MaterialButton>(R.id.btnReset).setOnClickListener {
+                      findViewById<TextInputEditText>(R.id.keywords).setText(KeywordStore.DEFAULT_KEYWORDS)
+                      saveKeywords()
+                  }
+                  val draft = savedInstanceState?.getString(DRAFT)
+                  if (draft != null) {
+                      findViewById<TextInputEditText>(R.id.keywords).setText(draft)
+                      keywordsLoaded = true
+                  }
+              }
+
+              override fun onSaveInstanceState(outState: Bundle) {
+                  super.onSaveInstanceState(outState)
+                  val draft = findViewById<TextInputEditText>(R.id.keywords).text?.toString()
+                  outState.putString(DRAFT, draft)
+              }
+
+              override fun onStart() {
+                  super.onStart()
+                  handler.post(tick)
+              }
+
+              override fun onStop() {
+                  handler.removeCallbacks(tick)
+                  super.onStop()
+              }
+
+              private fun saveKeywords() {
+                  val editor = findViewById<TextInputEditText>(R.id.keywords)
+                  KeywordStore.save(this, editor.text?.toString().orEmpty())
+                  keywordsLoaded = true
+                  Toast.makeText(this, R.string.saved, Toast.LENGTH_SHORT).show()
+              }
+
+              private fun render() {
+                  val service = findViewById<TextView>(R.id.statusService)
+                  val grants = findViewById<TextView>(R.id.statusGrants)
+                  val live = findViewById<TextView>(R.id.statusLive)
+                  val editor = findViewById<TextInputEditText>(R.id.keywords)
+                  val accessibility = PermissionChecks.accessibilityOn(this)
+                  service.text = if (accessibility) {
+                      "Erişilebilirlik açık. YouTube bekleniyor."
+                  } else {
+                      "Erişilebilirlik kapalı. Denetim çalışmaz."
+                  }
+                  val youtube = if (PermissionChecks.youtubeInstalled(this)) "yüklü" else "yok"
+                  grants.text = listOf(
+                      line("Bildirim", PermissionChecks.notificationsOn(this)),
+                      line("Pil serbest", PermissionChecks.batteryIgnored(this)),
+                      line("Kullanım erişimi", PermissionChecks.usageOn(this)),
+                      line("Uyarı bandı", PermissionChecks.overlayOn(this)),
+                      "YouTube: $youtube",
+                  ).joinToString("\n")
+                  val at = KeywordStore.statusAt(this)
+                  val clock = if (at == 0L) {
+                      ""
+                  } else {
+                      "\n" + DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(at))
+                  }
+                  live.text = KeywordStore.status(this) + clock
+                  if (!keywordsLoaded && !editor.hasFocus()) {
+                      editor.setText(KeywordStore.raw(this))
+                      keywordsLoaded = true
+                  }
+              }
+
+              private fun line(label: String, on: Boolean): String = "$label: " + if (on) "açık" else "kapalı"
+
+              private fun openNotifications() {
+                  if (Build.VERSION.SDK_INT >= 33 && !PermissionChecks.notificationsOn(this)) {
+                      requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 42)
+                      return
+                  }
+                  open(
+                      Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                          putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                      },
+                  )
+              }
+
+              private fun openBattery() {
+                  val intent = if (PermissionChecks.batteryIgnored(this)) {
+                      Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                  } else {
+                      Intent(
+                          Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                          Uri.parse("package:$packageName"),
+                      )
+                  }
+                  open(intent)
+              }
+
+              private fun open(intent: Intent) {
+                  try {
+                      startActivity(intent)
+                  } catch (_: Exception) {
+                      Toast.makeText(this, R.string.settings_failed, Toast.LENGTH_LONG).show()
+                  }
+              }
+
+              private companion object {
+                  const val DRAFT = "keyword_draft"
+              }
+          }
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/java/com/dersodak/app"
+          cat > "app/src/main/java/com/dersodak/app/Notifier.kt" << 'END_DERS_ODAK_FILE'
+          package com.dersodak.app
+
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.content.Context
+          import android.content.Intent
+          import android.os.Build
+          import androidx.core.app.NotificationCompat
+
+          object Notifier {
+              const val CHANNEL_ID = "ders_odak_watch"
+              const val NOTIF_ID = 42
+
+              fun ensureChannel(context: Context) {
+                  if (Build.VERSION.SDK_INT < 26) return
+                  val manager = context.getSystemService(NotificationManager::class.java) ?: return
+                  val channel = NotificationChannel(
+                      CHANNEL_ID,
+                      "Ders denetimi",
+                      NotificationManager.IMPORTANCE_LOW,
+                  ).apply {
+                      description = "YouTube açıkken başlık denetimi"
+                      setShowBadge(false)
+                  }
+                  manager.createNotificationChannel(channel)
+              }
+
+              fun build(context: Context, text: String): Notification {
+                  ensureChannel(context)
+                  val pending = PendingIntent.getActivity(
+                      context,
+                      0,
+                      Intent(context, MainActivity::class.java),
+                      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                  )
+                  return NotificationCompat.Builder(context, CHANNEL_ID)
+                      .setSmallIcon(R.drawable.ic_stat)
+                      .setContentTitle("Ders Odak")
+                      .setContentText(text)
+                      .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                      .setContentIntent(pending)
+                      .setOngoing(true)
+                      .setOnlyAlertOnce(true)
+                      .setCategory(Notification.CATEGORY_SERVICE)
+                      .build()
+              }
+          }
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/java/com/dersodak/app"
+          cat > "app/src/main/java/com/dersodak/app/PermissionChecks.kt" << 'END_DERS_ODAK_FILE'
+          package com.dersodak.app
+
+          import android.app.AppOpsManager
+          import android.app.NotificationManager
+          import android.content.Context
+          import android.os.Build
+          import android.os.PowerManager
+          import android.provider.Settings
+
+          object PermissionChecks {
+              fun accessibilityOn(context: Context): Boolean {
+                  val global = Settings.Secure.getInt(
+                      context.contentResolver,
+                      Settings.Secure.ACCESSIBILITY_ENABLED,
+                      0,
+                  )
+                  if (global != 1) return false
+                  val enabled = Settings.Secure.getString(
+                      context.contentResolver,
+                      Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                  ) ?: return false
+                  val flat = enabled.lowercase()
+                  return flat.contains("youtubeguardservice")
+              }
+
+              fun usageOn(context: Context): Boolean {
+                  val appOps = context.getSystemService(AppOpsManager::class.java) ?: return false
+                  val mode = if (Build.VERSION.SDK_INT >= 29) {
+                      appOps.unsafeCheckOpNoThrow(
+                          AppOpsManager.OPSTR_GET_USAGE_STATS,
+                          android.os.Process.myUid(),
+                          context.packageName,
+                      )
+                  } else {
+                      @Suppress("DEPRECATION")
+                      appOps.checkOpNoThrow(
+                          AppOpsManager.OPSTR_GET_USAGE_STATS,
+                          android.os.Process.myUid(),
+                          context.packageName,
+                      )
+                  }
+                  return mode == AppOpsManager.MODE_ALLOWED
+              }
+
+              fun overlayOn(context: Context): Boolean = Settings.canDrawOverlays(context)
+
+              fun batteryIgnored(context: Context): Boolean {
+                  val power = context.getSystemService(PowerManager::class.java) ?: return false
+                  return power.isIgnoringBatteryOptimizations(context.packageName)
+              }
+
+              fun notificationsOn(context: Context): Boolean {
+                  val manager = context.getSystemService(NotificationManager::class.java) ?: return false
+                  return manager.areNotificationsEnabled()
+              }
+
+              fun youtubeInstalled(context: Context): Boolean =
+                  try {
+                      context.packageManager.getPackageInfo("com.google.android.youtube", 0)
+                      true
+                  } catch (_: Exception) {
+                      false
+                  }
+          }
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/java/com/dersodak/app"
+          cat > "app/src/main/java/com/dersodak/app/ScreenJudge.kt" << 'END_DERS_ODAK_FILE'
+          package com.dersodak.app
+
+          import java.util.Locale
+
+          data class NodeSnap(
+              val id: String,
+              val text: String,
+              val desc: String,
+              val selected: Boolean,
+              val top: Int,
+              val bottom: Int,
+          )
+
+          enum class ScreenKind {
+              HOME,
+              SHORTS,
+              LONG_VIDEO,
+          }
+
+          data class Judgment(
+              val kind: ScreenKind,
+              val title: String,
+              val studyRelated: Boolean,
+              val shouldGoBack: Boolean,
+              val waitingForTitle: Boolean,
+              val reason: String,
+          )
+
+          object ScreenJudge {
+              private val shortsIds = listOf(
+                  "reel_player",
+                  "reel_recycler",
+                  "reel_watch",
+                  "shorts_player",
+                  "reel_main",
+                  "reel_player_page",
+                  "reel_play_pause",
+                  "reel_next_reel",
+                  "reel_prev_reel",
+              )
+
+              private val playerIds = listOf(
+                  "watch_player",
+                  "time_bar",
+                  "scrubber",
+                  "player_control",
+                  "player_overlays",
+                  "fullscreen_button",
+              )
+
+              private val titleIdHints = listOf(
+                  "video_title",
+                  "watch_title",
+                  "reel_title",
+                  "shorts_video_title",
+                  "shorts_title",
+                  "/title",
+              )
+
+              private val titleIdReject = listOf(
+                  "channel",
+                  "toolbar",
+                  "menu",
+                  "button",
+                  "badge",
+                  "comment",
+                  "ad_",
+              )
+
+              private val chrome = listOf(
+                  "ana sayfa",
+                  "home",
+                  "shorts",
+                  "kisa videolar",
+                  "subscriptions",
+                  "abonelikler",
+                  "library",
+                  "kitaplik",
+                  "you",
+                  "siz",
+                  "ara",
+                  "search",
+                  "begen",
+                  "like",
+                  "dislike",
+                  "begenme",
+                  "yorum",
+                  "yorumlar",
+                  "comments",
+                  "paylas",
+                  "share",
+                  "remix",
+                  "abone ol",
+                  "subscribe",
+                  "subscribed",
+                  "geri",
+                  "back",
+                  "kapat",
+                  "close",
+                  "daha fazla",
+                  "more",
+                  "aciklama",
+                  "description",
+                  "kaydet",
+                  "save",
+                  "indir",
+                  "download",
+                  "kesfet",
+                  "explore",
+                  "canli",
+                  "live",
+                  "tam ekran",
+                  "fullscreen",
+                  "islem menusu",
+                  "daha fazla islem",
+              ).map { norm(it) }.toSet()
+
+              private val buttonPrefixes = listOf(
+                  "videoyu begen",
+                  "videoyu begenme",
+                  "begenmekten vazgec",
+                  "kanala git",
+                  "videoyu paylas",
+                  "yorumlari gor",
+                  "yorum yap",
+                  "abone ol",
+              )
+
+              fun judge(nodes: List<NodeSnap>, keywordsRaw: List<String>): Judgment {
+                  val keywords = keywordsRaw.map { norm(it) }.filter { it.length >= 3 }.distinct()
+                  val kind = classify(nodes)
+                  if (kind == ScreenKind.HOME) {
+                      return Judgment(
+                          kind = kind,
+                          title = "",
+                          studyRelated = false,
+                          shouldGoBack = false,
+                          waitingForTitle = false,
+                          reason = "Ana ekran. Müdahale yok.",
+                      )
+                  }
+                  if (isAd(nodes)) {
+                      return Judgment(
+                          kind = kind,
+                          title = "",
+                          studyRelated = false,
+                          shouldGoBack = false,
+                          waitingForTitle = false,
+                          reason = "Reklam görünüyor, bekleniyor.",
+                      )
+                  }
+                  val picked = pickTitle(nodes, kind)
+                  if (picked.display.isBlank()) {
+                      val where = if (kind == ScreenKind.SHORTS) "Shorts" else "Uzun video"
+                      return Judgment(
+                          kind = kind,
+                          title = "",
+                          studyRelated = false,
+                          shouldGoBack = false,
+                          waitingForTitle = true,
+                          reason = "$where başlığı henüz okunamadı.",
+                      )
+                  }
+                  val hit = keywords.firstOrNull { keywordHits(norm(picked.match), it) }
+                  if (hit != null) {
+                      return Judgment(
+                          kind = kind,
+                          title = picked.display,
+                          studyRelated = true,
+                          shouldGoBack = false,
+                          waitingForTitle = false,
+                          reason = "Ders içeriği, açık kaldı.",
+                      )
+                  }
+                  val where = if (kind == ScreenKind.SHORTS) "Shorts" else "Uzun video"
+                  return Judgment(
+                      kind = kind,
+                      title = picked.display,
+                      studyRelated = false,
+                      shouldGoBack = true,
+                      waitingForTitle = false,
+                      reason = "$where dersle ilgili değil.",
+                  )
+              }
+
+              fun keywordHits(normalizedTitle: String, normalizedKeyword: String): Boolean {
+                  if (normalizedKeyword.length < 3) return false
+                  if (normalizedKeyword.contains(' ')) return normalizedTitle.contains(normalizedKeyword)
+                  val pattern = "(^|[^a-z0-9])" + Regex.escape(normalizedKeyword)
+                  return Regex(pattern).containsMatchIn(normalizedTitle)
+              }
+
+              private fun classify(nodes: List<NodeSnap>): ScreenKind {
+                  val ids = nodes.map { it.id.lowercase(Locale.US) }
+                  val player = ids.any { id -> playerIds.any { hint -> id.contains(hint) } }
+                  if (player) return ScreenKind.LONG_VIDEO
+                  val shortsById = ids.any { id -> shortsIds.any { hint -> id.contains(hint) } }
+                  val shortsTab = nodes.any { tabSelected(it, ::isShortsLabel) }
+                  if (shortsById || shortsTab) return ScreenKind.SHORTS
+                  return ScreenKind.HOME
+              }
+
+              private fun tabSelected(node: NodeSnap, label: (String) -> Boolean): Boolean {
+                  val labeled = label(node.text) || label(node.desc)
+                  if (!labeled) return false
+                  if (node.selected) return true
+                  val blob = norm(node.text + " " + node.desc)
+                  return blob.contains("secili") || blob.contains("selected")
+              }
+
+              private fun isShortsLabel(raw: String): Boolean {
+                  val n = norm(raw)
+                  if (n.isBlank() || n.length > 28) return false
+                  return n == "shorts" || n == "kisa videolar" || n.startsWith("shorts ")
+              }
+
+              private fun isAd(nodes: List<NodeSnap>): Boolean {
+                  val ids = nodes.map { it.id.lowercase(Locale.US) }
+                  if (ids.any {
+                          it.contains("skip_ad") ||
+                              it.contains("ad_countdown") ||
+                              it.contains("ad_overlay") ||
+                              it.contains("ad_progress") ||
+                              it.contains("player_learn_more")
+                      }
+                  ) {
+                      return true
+                  }
+                  return nodes.any { node ->
+                      val values = listOf(norm(node.text), norm(node.desc)).filter { it.isNotBlank() && it.length <= 32 }
+                      values.any { value ->
+                          value == "reklam" ||
+                              value == "sponsored" ||
+                              value == "sponsorlu" ||
+                              value == "skip ad" ||
+                              value == "skip ads" ||
+                              value.startsWith("reklami gec") ||
+                              value.startsWith("reklami atla") ||
+                              value.startsWith("reklamveren")
+                      }
+                  }
+              }
+
+              private data class TitlePick(val display: String, val match: String)
+
+              private fun pickTitle(nodes: List<NodeSnap>, kind: ScreenKind): TitlePick {
+                  val byId = nodes.mapNotNull { node ->
+                      if (!looksLikeTitleId(node.id)) return@mapNotNull null
+                      val text = clean(node) ?: return@mapNotNull null
+                      node to text
+                  }
+                  if (byId.isNotEmpty()) {
+                      val main = if (kind == ScreenKind.SHORTS) {
+                          byId.maxBy { it.first.top }
+                      } else {
+                          byId.minBy { it.first.top }
+                      }
+                      val channel = channelName(nodes)
+                      val match = listOf(main.second, channel).filter { it.isNotBlank() }.joinToString(" ")
+                      return TitlePick(main.second.take(180), match.take(240))
+                  }
+                  val maxBottom = nodes.maxOfOrNull { it.bottom } ?: 0
+                  val shortsCutoff = (maxBottom * 42) / 100
+                  val longCutoff = (maxBottom * 72) / 100
+                  val texts = nodes.mapNotNull { node ->
+                      val text = clean(node) ?: return@mapNotNull null
+                      if (kind == ScreenKind.SHORTS && maxBottom > 0 && node.top < shortsCutoff) {
+                          return@mapNotNull null
+                      }
+                      if (kind == ScreenKind.LONG_VIDEO && maxBottom > 0 && node.top > longCutoff) {
+                          return@mapNotNull null
+                      }
+                      text
+                  }.distinct().sortedByDescending { it.length }
+                  return TitlePick(
+                      display = texts.firstOrNull().orEmpty().take(180),
+                      match = texts.take(2).joinToString(" ").take(240),
+                  )
+              }
+
+              private fun channelName(nodes: List<NodeSnap>): String {
+                  val node = nodes.firstOrNull { candidate ->
+                      val id = candidate.id.lowercase(Locale.US)
+                      id.contains("channel") && (id.contains("name") || id.contains("title"))
+                  } ?: return ""
+                  return clean(node)?.take(60).orEmpty()
+              }
+
+              private fun looksLikeTitleId(id: String): Boolean {
+                  if (id.isBlank()) return false
+                  val lower = id.lowercase(Locale.US)
+                  if (titleIdReject.any { lower.contains(it) }) return false
+                  return titleIdHints.any { lower.contains(it) }
+              }
+
+              private fun clean(node: NodeSnap): String? {
+                  val raw = if (node.text.length >= 2) node.text else node.desc
+                  val text = raw.trim()
+                  if (isChrome(text)) return null
+                  return text
+              }
+
+              private fun isChrome(raw: String): Boolean {
+                  val n = norm(raw)
+                  if (n.isBlank() || n.length <= 2) return true
+                  if (n in chrome) return true
+                  if (buttonPrefixes.any { n.startsWith(it) }) return true
+                  return Regex("^[0-9][0-9., ]*(bin|mn|m|b|k)?$").matches(n)
+              }
+
+              fun norm(raw: String): String {
+                  val lower = raw.lowercase(Locale.forLanguageTag("tr-TR"))
+                  val folded = buildString(lower.length) {
+                      for (ch in lower) {
+                          append(
+                              when (ch) {
+                                  'ı', 'i' -> 'i'
+                                  'ş' -> 's'
+                                  'ğ' -> 'g'
+                                  'ü' -> 'u'
+                                  'ö' -> 'o'
+                                  'ç' -> 'c'
+                                  'â', 'á', 'à' -> 'a'
+                                  else -> ch
+                              },
+                          )
+                      }
+                  }
+                  return folded
+                      .replace(Regex("[^a-z0-9+# ]"), " ")
+                      .replace(Regex("\\s+"), " ")
+                      .trim()
+              }
+          }
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/java/com/dersodak/app"
+          cat > "app/src/main/java/com/dersodak/app/YouTubeGuardService.kt" << 'END_DERS_ODAK_FILE'
+          package com.dersodak.app
+
+          import android.accessibilityservice.AccessibilityService
+          import android.accessibilityservice.AccessibilityServiceInfo
+          import android.app.NotificationManager
+          import android.app.usage.UsageEvents
+          import android.app.usage.UsageStatsManager
+          import android.content.Intent
+          import android.graphics.PixelFormat
+          import android.graphics.drawable.GradientDrawable
+          import android.os.Handler
+          import android.os.Looper
+          import android.os.PowerManager
+          import android.util.Log
+          import android.view.Gravity
+          import android.view.WindowManager
+          import android.view.accessibility.AccessibilityEvent
+          import android.view.accessibility.AccessibilityNodeInfo
+          import android.widget.TextView
+          import androidx.core.content.ContextCompat
+
+          class YouTubeGuardService : AccessibilityService() {
+              private val handler = Handler(Looper.getMainLooper())
+              private var youtubeActive = false
+              private var unknownStreak = 0
+              private var violationStreak = 0
+              private var scanQueued = false
+
+              private val scan = Runnable {
+                  scanQueued = false
+                  runScan()
+              }
+
+              private val pkgWatch = object : Runnable {
+                  override fun run() {
+                      try {
+                          val foreground = foregroundPackage()
+                          when {
+                              foreground == YOUTUBE -> onEnterYoutube()
+                              foreground != null && !isTransient(foreground) && foreground != packageName -> onLeftYoutube()
+                          }
+                      } catch (error: Exception) {
+                          Log.w(TAG, "paket kontrolu", error)
+                      }
+                      handler.postDelayed(this, 60_000)
+                  }
+              }
+
+              override fun onServiceConnected() {
+                  super.onServiceConnected()
+                  try {
+                      val info = serviceInfo
+                      if (info != null) {
+                          info.eventTypes =
+                              AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
+                              AccessibilityEvent.TYPE_WINDOWS_CHANGED
+                          info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+                          info.flags = info.flags or
+                              AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                              AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+                              AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+                          info.notificationTimeout = 100
+                          info.packageNames = null
+                          serviceInfo = info
+                      }
+                  } catch (error: Exception) {
+                      Log.w(TAG, "servis ayari", error)
+                  }
+                  Notifier.ensureChannel(this)
+                  handler.removeCallbacks(pkgWatch)
+                  handler.postDelayed(pkgWatch, 60_000)
+              }
+
+              override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+                  try {
+                      if (event == null) return
+                      val type = event.eventType
+                      if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+                          type != AccessibilityEvent.TYPE_WINDOWS_CHANGED
+                      ) {
+                          return
+                      }
+                      val pkg = event.packageName?.toString() ?: return
+                      if (pkg == YOUTUBE) {
+                          onEnterYoutube()
+                      } else if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && !isTransient(pkg)) {
+                          onLeftYoutube()
+                      }
+                  } catch (error: Exception) {
+                      Log.w(TAG, "olay", error)
+                  }
+              }
+
+              override fun onInterrupt() = Unit
+
+              override fun onDestroy() {
+                  handler.removeCallbacksAndMessages(null)
+                  try {
+                      stopService(Intent(this, GuardForegroundService::class.java))
+                  } catch (_: Exception) {
+                  }
+                  super.onDestroy()
+              }
+
+              private fun onEnterYoutube() {
+                  if (youtubeActive) {
+                      if (!scanQueued) scheduleScan()
+                      return
+                  }
+                  youtubeActive = true
+                  unknownStreak = 0
+                  violationStreak = 0
+                  KeywordStore.setStatus(this, "YouTube açık. Denetim başladı.")
+                  try {
+                      ContextCompat.startForegroundService(this, Intent(this, GuardForegroundService::class.java))
+                  } catch (error: Exception) {
+                      Log.w(TAG, "on plan servisi", error)
+                  }
+                  handler.removeCallbacks(scan)
+                  scanQueued = true
+                  handler.post(scan)
+              }
+
+              private fun onLeftYoutube() {
+                  if (!youtubeActive) return
+                  youtubeActive = false
+                  unknownStreak = 0
+                  violationStreak = 0
+                  handler.removeCallbacks(scan)
+                  scanQueued = false
+                  try {
+                      stopService(Intent(this, GuardForegroundService::class.java))
+                  } catch (_: Exception) {
+                  }
+                  KeywordStore.setStatus(this, "YouTube kapalı. Tarama durdu.")
+              }
+
+              private fun runScan() {
+                  if (!youtubeActive) return
+                  try {
+                      val power = getSystemService(PowerManager::class.java)
+                      if (power != null && !power.isInteractive) {
+                          unknownStreak = 0
+                          KeywordStore.setStatus(this, "Ekran kapalı. Dokunulmadı.")
+                          scheduleScan()
+                          return
+                      }
+                      val root = rootInActiveWindow
+                      if (root == null) {
+                          scheduleScan()
+                          return
+                      }
+                      val pkg = root.packageName?.toString()
+                      if (pkg != YOUTUBE) {
+                          root.recycle()
+                          onLeftYoutube()
+                          return
+                      }
+                      val nodes = ArrayList<NodeSnap>(256)
+                      collect(root, nodes, 0)
+                      root.recycle()
+                      val judgment = ScreenJudge.judge(nodes, KeywordStore.keywords(this))
+                      act(judgment)
+                  } catch (error: Exception) {
+                      Log.w(TAG, "tarama", error)
+                  }
+                  scheduleScan()
+              }
+
+              private fun scheduleScan() {
+                  if (!youtubeActive || scanQueued) return
+                  scanQueued = true
+                  handler.postDelayed(scan, 5_000)
+              }
+
+              private fun act(judgment: Judgment) {
+                  val head = when (judgment.kind) {
+                      ScreenKind.HOME -> "Ana ekran"
+                      ScreenKind.SHORTS -> "Shorts"
+                      ScreenKind.LONG_VIDEO -> "Uzun video"
+                  }
+                  val titleBit = if (judgment.title.isBlank()) "" else " · ${judgment.title.take(90)}"
+                  val base = head + titleBit
+                  val allowed = judgment.kind == ScreenKind.HOME || (!judgment.shouldGoBack && !judgment.waitingForTitle)
+                  if (allowed) {
+                      unknownStreak = 0
+                      violationStreak = 0
+                      KeywordStore.setStatus(this, "$base · ${judgment.reason}")
+                      return
+                  }
+                  if (judgment.waitingForTitle) {
+                      unknownStreak += 1
+                      if (unknownStreak >= 3) {
+                          leave("$base · başlık okunamadı")
+                          unknownStreak = 0
+                      } else {
+                          KeywordStore.setStatus(this, "$base · başlık bekleniyor")
+                      }
+                      return
+                  }
+                  unknownStreak = 0
+                  leave("$base · ${judgment.reason}")
+              }
+
+              private fun leave(line: String) {
+                  violationStreak += 1
+                  val goHome = violationStreak >= 2
+                  val acted = if (goHome) {
+                      performGlobalAction(GLOBAL_ACTION_HOME)
+                  } else {
+                      performGlobalAction(GLOBAL_ACTION_BACK)
+                  }
+                  if (!acted && !goHome) performGlobalAction(GLOBAL_ACTION_HOME)
+                  val action = if (goHome || !acted) "ana ekrana dönüldü" else "geri tuşu"
+                  val status = "$line · $action"
+                  KeywordStore.setStatus(this, status)
+                  Log.i(TAG, status.take(180))
+                  notify(status)
+                  showBanner(if (goHome) "Ders dışı video kapatıldı" else "Ders dışı içerik, geri")
+              }
+
+              private fun notify(text: String) {
+                  try {
+                      val manager = getSystemService(NotificationManager::class.java) ?: return
+                      manager.notify(Notifier.NOTIF_ID, Notifier.build(this, text))
+                  } catch (error: Exception) {
+                      Log.w(TAG, "bildirim", error)
+                  }
+              }
+
+              private fun showBanner(message: String) {
+                  if (!PermissionChecks.overlayOn(this)) return
+                  try {
+                      val windowManager = getSystemService(WindowManager::class.java) ?: return
+                      val view = TextView(this).apply {
+                          text = message
+                          setTextColor(0xFFF4FAF6.toInt())
+                          textSize = 15f
+                          setPadding(48, 36, 48, 36)
+                          background = GradientDrawable().apply {
+                              cornerRadius = 28f
+                              setColor(0xFF1E6B45.toInt())
+                          }
+                      }
+                      val params = WindowManager.LayoutParams(
+                          WindowManager.LayoutParams.WRAP_CONTENT,
+                          WindowManager.LayoutParams.WRAP_CONTENT,
+                          WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                          WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                          PixelFormat.TRANSLUCENT,
+                      ).apply {
+                          gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                          y = 96
+                      }
+                      windowManager.addView(view, params)
+                      handler.postDelayed({
+                          try {
+                              windowManager.removeView(view)
+                          } catch (_: Exception) {
+                          }
+                      }, 1600)
+                  } catch (error: Exception) {
+                      Log.w(TAG, "bant", error)
+                  }
+              }
+
+              private fun collect(node: AccessibilityNodeInfo?, out: MutableList<NodeSnap>, depth: Int) {
+                  if (node == null || depth > 16 || out.size >= 350) return
+                  val rect = android.graphics.Rect()
+                  node.getBoundsInScreen(rect)
+                  out.add(
+                      NodeSnap(
+                          id = node.viewIdResourceName ?: "",
+                          text = node.text?.toString()?.trim().orEmpty(),
+                          desc = node.contentDescription?.toString()?.trim().orEmpty(),
+                          selected = node.isSelected || node.isChecked,
+                          top = rect.top,
+                          bottom = rect.bottom,
+                      ),
+                  )
+                  for (index in 0 until node.childCount) {
+                      val child = node.getChild(index) ?: continue
+                      collect(child, out, depth + 1)
+                      child.recycle()
+                  }
+              }
+
+              private fun foregroundPackage(): String? {
+                  if (!PermissionChecks.usageOn(this)) return null
+                  val stats = getSystemService(UsageStatsManager::class.java) ?: return null
+                  val now = System.currentTimeMillis()
+                  val events = stats.queryEvents(now - 12_000, now)
+                  val event = UsageEvents.Event()
+                  var last: String? = null
+                  while (events.hasNextEvent()) {
+                      events.getNextEvent(event)
+                      val type = event.eventType
+                      val resumed = type == UsageEvents.Event.ACTIVITY_RESUMED ||
+                          type == UsageEvents.Event.MOVE_TO_FOREGROUND
+                      if (resumed && !event.packageName.isNullOrBlank()) last = event.packageName
+                  }
+                  return last
+              }
+
+              private fun isTransient(pkg: String): Boolean {
+                  return pkg == "com.android.systemui" ||
+                      pkg == "android" ||
+                      pkg.contains("inputmethod")
+              }
+
+              private companion object {
+                  const val TAG = "DersOdak"
+                  const val YOUTUBE = "com.google.android.youtube"
+              }
+          }
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/res/drawable"
+          cat > "app/src/main/res/drawable/ic_launcher.xml" << 'END_DERS_ODAK_FILE'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#1E6B45"
+                  android:pathData="M0,0h108v108h-108z" />
+              <path
+                  android:fillColor="#F6F3EC"
+                  android:pathData="M28,30h38c7,0 12,5 12,12v40H40c-8,0 -14,4 -16,8V36c0,-3.3 2.7,-6 6,-6z" />
+              <path
+                  android:fillColor="#1E6B45"
+                  android:pathData="M40,44h26v4h-26zM40,54h26v4h-26zM40,64h16v4h-16z" />
+              <path
+                  android:fillColor="#C4A46A"
+                  android:pathData="M28,78h52v6h-52z" />
+          </vector>
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/res/drawable"
+          cat > "app/src/main/res/drawable/ic_stat.xml" << 'END_DERS_ODAK_FILE'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp"
+              android:height="24dp"
+              android:viewportWidth="24"
+              android:viewportHeight="24">
+              <path
+                  android:fillColor="#FFFFFFFF"
+                  android:pathData="M6,3h9.2c1.5,0 2.8,1.2 2.8,2.8V21H7.2C5.4,21 4,19.8 4,18.2V5.2C4,4 4.9,3 6,3zM8,8h7v1.7H8zM8,11.8h7v1.7H8zM8,15.6h4.6v1.7H8z" />
+          </vector>
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/res/layout"
+          cat > "app/src/main/res/layout/activity_main.xml" << 'END_DERS_ODAK_FILE'
+          <?xml version="1.0" encoding="utf-8"?>
+          <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="@color/paper"
+              android:fillViewport="true"
+              android:fitsSystemWindows="true">
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="vertical"
+                  android:padding="20dp">
+
+                  <TextView
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:text="@string/app_name"
+                      android:textColor="@color/ink"
+                      android:textSize="32sp"
+                      android:textStyle="bold" />
+
+                  <TextView
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="8dp"
+                      android:lineSpacingExtra="3dp"
+                      android:text="@string/hero"
+                      android:textColor="@color/muted"
+                      android:textSize="16sp" />
+
+                  <TextView
+                      android:id="@+id/statusService"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="18dp"
+                      android:background="@color/card"
+                      android:padding="16dp"
+                      android:textColor="@color/ink"
+                      android:textSize="18sp"
+                      android:textStyle="bold" />
+
+                  <TextView
+                      android:id="@+id/statusGrants"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="8dp"
+                      android:background="@color/card"
+                      android:lineSpacingExtra="4dp"
+                      android:padding="16dp"
+                      android:textColor="@color/ink"
+                      android:textSize="15sp" />
+
+                  <TextView
+                      android:id="@+id/statusLive"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="8dp"
+                      android:background="@color/card"
+                      android:lineSpacingExtra="3dp"
+                      android:padding="16dp"
+                      android:textColor="@color/muted"
+                      android:textSize="14sp" />
+
+                  <TextView
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="16dp"
+                      android:lineSpacingExtra="3dp"
+                      android:text="@string/restricted_help"
+                      android:textColor="@color/ink"
+                      android:textSize="14sp" />
+
+                  <com.google.android.material.button.MaterialButton
+                      android:id="@+id/btnAppInfo"
+                      style="@style/Widget.DersOdak.Button"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="12dp"
+                      android:text="@string/open_app_info" />
+
+                  <com.google.android.material.button.MaterialButton
+                      android:id="@+id/btnA11y"
+                      style="@style/Widget.DersOdak.Button"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="8dp"
+                      android:text="@string/open_a11y" />
+
+                  <com.google.android.material.button.MaterialButton
+                      android:id="@+id/btnNotif"
+                      style="@style/Widget.DersOdak.Button.Quiet"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="8dp"
+                      android:text="@string/open_notif" />
+
+                  <com.google.android.material.button.MaterialButton
+                      android:id="@+id/btnBattery"
+                      style="@style/Widget.DersOdak.Button.Quiet"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="8dp"
+                      android:text="@string/open_battery" />
+
+                  <com.google.android.material.button.MaterialButton
+                      android:id="@+id/btnUsage"
+                      style="@style/Widget.DersOdak.Button.Quiet"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="8dp"
+                      android:text="@string/open_usage" />
+
+                  <com.google.android.material.button.MaterialButton
+                      android:id="@+id/btnOverlay"
+                      style="@style/Widget.DersOdak.Button.Quiet"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="8dp"
+                      android:text="@string/open_overlay" />
+
+                  <com.google.android.material.textfield.TextInputLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="18dp"
+                      android:hint="@string/keywords_hint">
+
+                      <com.google.android.material.textfield.TextInputEditText
+                          android:id="@+id/keywords"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:gravity="top"
+                          android:importantForAutofill="no"
+                          android:inputType="textMultiLine|textCapSentences"
+                          android:minLines="8" />
+                  </com.google.android.material.textfield.TextInputLayout>
+
+                  <com.google.android.material.button.MaterialButton
+                      android:id="@+id/btnSave"
+                      style="@style/Widget.DersOdak.Button"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="8dp"
+                      android:text="@string/save" />
+
+                  <com.google.android.material.button.MaterialButton
+                      android:id="@+id/btnReset"
+                      style="@style/Widget.DersOdak.Button.Quiet"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="8dp"
+                      android:text="@string/reset" />
+
+                  <TextView
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="16dp"
+                      android:layout_marginBottom="12dp"
+                      android:lineSpacingExtra="3dp"
+                      android:text="@string/privacy_help"
+                      android:textColor="@color/muted"
+                      android:textSize="13sp" />
+              </LinearLayout>
+          </ScrollView>
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/res/values"
+          cat > "app/src/main/res/values/colors.xml" << 'END_DERS_ODAK_FILE'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ink">#17211C</color>
+              <color name="paper">#F3F0E7</color>
+              <color name="card">#FFFDF8</color>
+              <color name="green">#1E6B45</color>
+              <color name="green_dark">#143528</color>
+              <color name="on_green">#F4FAF6</color>
+              <color name="muted">#5D675F</color>
+              <color name="line">#E4DDD0</color>
+          </resources>
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/res/values"
+          cat > "app/src/main/res/values/strings.xml" << 'END_DERS_ODAK_FILE'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Ders Odak</string>
+              <string name="a11y_label">Ders Odak YouTube denetimi</string>
+              <string name="a11y_description">Ders çalışırken yalnızca YouTube açıkken ekranı 5 saniyede bir okur. Ana sayfaya dokunmaz. Shorts veya uzun videonun başlığı dersle ilgili değilse geri tuşuna basar; video açık kaldıysa telefonun ana ekranına döner. YouTube kapanınca taramayı durdurur. Başka uygulamaların yazısını okumaz, internete veri göndermez.</string>
+              <string name="hero">YouTube açıkken Shorts ve uzun videonun başlığına bakar. Ders değilse geri alır.</string>
+              <string name="restricted_help">Android 13 ve sonrasında sideload APK için önce uygulama bilgilerinde sağ üstteki üç noktadan Kısıtlı ayarlara izin ver. Bunu yapmadan erişilebilirlik anahtarı açılmayabilir.</string>
+              <string name="privacy_help">İnternet izni yok. Başlıklar telefondan çıkmaz. YouTube kapalıyken 5 saniyelik ekran taraması çalışmaz. Android, başka bir uygulamayı köksüz tamamen öldürmeye izin vermez; video kapanmazsa bir sonraki kontrol ana ekrana döner.</string>
+              <string name="keywords_hint">Ders kelimeleri (virgül veya satır)</string>
+              <string name="open_app_info">Uygulama bilgisi</string>
+              <string name="open_a11y">Erişilebilirliği aç</string>
+              <string name="open_notif">Bildirim izni</string>
+              <string name="open_battery">Pil kısıtını kaldır</string>
+              <string name="open_usage">Kullanım erişimi</string>
+              <string name="open_overlay">Uyarı bandı izni</string>
+              <string name="save">Kelimeleri kaydet</string>
+              <string name="reset">Varsayılan kelimeler</string>
+              <string name="saved">Kelimeler kaydedildi. Sonraki kontrolde geçerli.</string>
+              <string name="settings_failed">Bu ayar ekranı açılamadı.</string>
+          </resources>
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/res/values"
+          cat > "app/src/main/res/values/themes.xml" << 'END_DERS_ODAK_FILE'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.DersOdak" parent="Theme.Material3.DayNight.NoActionBar">
+                  <item name="colorPrimary">@color/green</item>
+                  <item name="colorOnPrimary">@color/on_green</item>
+                  <item name="colorSurface">@color/card</item>
+                  <item name="android:colorBackground">@color/paper</item>
+                  <item name="android:statusBarColor">@color/green_dark</item>
+                  <item name="android:navigationBarColor">@color/paper</item>
+                  <item name="materialButtonStyle">@style/Widget.DersOdak.Button</item>
+              </style>
+
+              <style name="Widget.DersOdak.Button" parent="Widget.Material3.Button">
+                  <item name="android:textAllCaps">false</item>
+                  <item name="android:minHeight">52dp</item>
+                  <item name="cornerRadius">14dp</item>
+              </style>
+
+              <style name="Widget.DersOdak.Button.Quiet" parent="Widget.Material3.Button.OutlinedButton">
+                  <item name="android:textAllCaps">false</item>
+                  <item name="android:minHeight">52dp</item>
+                  <item name="cornerRadius">14dp</item>
+              </style>
+          </resources>
+          END_DERS_ODAK_FILE
+          mkdir -p "app/src/main/res/xml"
+          cat > "app/src/main/res/xml/accessibility_service_config.xml" << 'END_DERS_ODAK_FILE'
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
+              android:canRetrieveWindowContent="true"
+              android:description="@string/a11y_description"
+              android:isAccessibilityTool="true"
+              android:notificationTimeout="100"
+              android:settingsActivity="com.dersodak.app.MainActivity" />
+          END_DERS_ODAK_FILE
+          cat > "build.gradle.kts" << 'END_DERS_ODAK_FILE'
+          plugins {
+              id("com.android.application") version "8.7.3" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+          }
+          END_DERS_ODAK_FILE
+          cat > "gradle.properties" << 'END_DERS_ODAK_FILE'
+          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+          org.gradle.parallel=true
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          org.gradle.welcome=never
+          END_DERS_ODAK_FILE
+          cat > "settings.gradle.kts" << 'END_DERS_ODAK_FILE'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "DersOdak"
+          include(":app")
+          END_DERS_ODAK_FILE
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: SDK platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v sdkmanager >/dev/null 2>&1; then
+            echo "sdkmanager yok"
+            exit 1
+          fi
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Gradle 8.11.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/gradle.zip https://services.gradle.org/distributions/gradle-8.11.1-bin.zip
+          sudo unzip -q /tmp/gradle.zip -d /opt
+          echo "/opt/gradle-8.11.1/bin" >> "$GITHUB_PATH"
+
+      - name: Derle
+        shell: bash
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: APK yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: DersOdak
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
